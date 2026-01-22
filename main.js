@@ -107,14 +107,21 @@ async function handleRequest(request, env, ctx) {
                             })
                         }
                     }else{
+                        console.log('[URL Parse] pathParts:', pathParts)
+                        console.log('[URL Parse] pathParts.length:', pathParts.length)
+                        console.log('[URL Parse] searchParams:', Array.from(searchParams.entries()))
+
                         searchParams.forEach((value, key) => {requestBody[key.toLowerCase()] = value})
 
                         if (pathParts.length === 3) {
+                            console.log('[URL Parse] Setting body from pathParts[2]:', pathParts[2])
                             requestBody.body = pathParts[2]
                         } else if (pathParts.length === 4) {
+                            console.log('[URL Parse] Setting title and body from pathParts[2], pathParts[3]:', pathParts[2], pathParts[3])
                             requestBody.title = pathParts[2]
                             requestBody.body = pathParts[3]
                         } else if (pathParts.length === 5) {
+                            console.log('[URL Parse] Setting title, subtitle, body from pathParts[2-4]:', pathParts[2], pathParts[3], pathParts[4])
                             requestBody.title = pathParts[2]
                             requestBody.subtitle = pathParts[3]
                             requestBody.body = pathParts[4]
