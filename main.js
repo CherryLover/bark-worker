@@ -51,6 +51,10 @@ async function handleRequest(request, env, ctx) {
         }
         default: {
             const pathParts = realPathname.split('/')
+            console.log('[Request] URL:', request.url)
+            console.log('[Request] realPathname:', realPathname)
+            console.log('[Request] pathParts:', pathParts)
+            console.log('[Request] Content-Type:', request.headers.get('content-type'))
 
             if (pathParts[1]) {
                 if (!util.validateBasicAuth(request, basicAuth)) {
@@ -69,11 +73,13 @@ async function handleRequest(request, env, ctx) {
                 try {
                     if (contentType && contentType.includes('application/json')) {
                         requestBody = await request.json()
+                        console.log('[JSON Parse] Original JSON body:', JSON.stringify(requestBody))
 
                         requestBody = Object.keys(requestBody).reduce((obj, key) => {
                             obj[key.toLowerCase()] = requestBody[key]
                             return obj
                         }, {})
+                        console.log('[JSON Parse] After lowercase keys:', JSON.stringify(requestBody))
                     }else if (contentType && contentType.includes('application/x-www-form-urlencoded')){
                         const formData = await request.formData()
                         formData.forEach((value, key) => {requestBody[key.toLowerCase()] = value})
@@ -115,7 +121,10 @@ async function handleRequest(request, env, ctx) {
 
                         if (pathParts.length === 3) {
                             console.log('[URL Parse] Setting body from pathParts[2]:', pathParts[2])
-                            requestBody.body = pathParts[2]
+                            // 只有当 pathParts[2] 不为空时才设置 body，避免覆盖 JSON body
+                            if (pathParts[2]) {
+                                requestBody.body = pathParts[2]
+                            }
                         } else if (pathParts.length === 4) {
                             console.log('[URL Parse] Setting title and body from pathParts[2], pathParts[3]:', pathParts[2], pathParts[3])
                             requestBody.title = pathParts[2]
