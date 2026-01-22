@@ -1,3 +1,12 @@
+// 设备转发映射配置
+// 格式: { '旧设备key': ['新设备key1', '新设备key2', ...] }
+// 当请求发送到旧设备时，会自动转发到配置的新设备列表
+const DEVICE_FORWARD_MAP = {
+    // 示例配置（请根据实际情况修改）:
+    // 'old_device_A': ['new_device_B', 'new_device_C', 'new_device_D'],
+    // 'old_device_X': ['new_device_Y'],
+}
+
 export default {
     async fetch(request, env, ctx) {
         return await handleRequest(request, env, ctx)
@@ -158,6 +167,15 @@ async function handleRequest(request, env, ctx) {
 
                         if (typeof requestBody.device_keys === 'string') {
                             requestBody.device_keys = [requestBody.device_keys]
+                        }
+                    }
+
+                    // 设备转发逻辑：检查是否需要将请求转发到其他设备
+                    const device_key = pathParts[1]
+                    if (device_key && DEVICE_FORWARD_MAP[device_key]) {
+                        // 如果请求中没有指定 device_keys，则使用映射配置
+                        if (!requestBody.device_keys) {
+                            requestBody.device_keys = DEVICE_FORWARD_MAP[device_key]
                         }
                     }
                 } catch (error) {
