@@ -31,7 +31,7 @@ async function handleRequest(request, env, ctx) {
                     status: 401,
                     headers: {
                         'content-type': 'text/plain',
-                        'WWW-Authenticate': 'Basic',
+                        'WWW-Authenticate': 'Basic realm="Bark"',
                     }
                 })
             }
@@ -85,7 +85,7 @@ async function handleRequest(request, env, ctx) {
                         } catch (error) {
                             return new Response(JSON.stringify({
                                 'code': 500,
-                                'meaasge': `url path parse failed: ${error}`,
+                                'message': `url path parse failed: ${error}`,
                                 'timestamp': util.getTimestamp(),
                             }), {
                                 status: 500,
@@ -138,7 +138,7 @@ async function handleRequest(request, env, ctx) {
                         } catch (error) {
                             return new Response(JSON.stringify({
                                 'code': 500,
-                                'meaasge': `url path parse failed: ${error}`,
+                                'message': `url path parse failed: ${error}`,
                                 'timestamp': util.getTimestamp(),
                             }), {
                                 status: 500,
@@ -248,10 +248,10 @@ async function handleRequest(request, env, ctx) {
 
 class Handler {
     constructor(db, options) {
-        this.version = 'v2.2.6'
-        this.build = '2025-12-03 10:51:22'
+        this.version = 'v2.3.4'
+        this.build = '2026-09-12 17:45:41'
         this.arch = 'js'
-        this.commit = '18d1037eab7a2310f595cfd31ea49b444f6133f2'
+        this.commit = '3db0918856d5aca4d141300c84d5c7a9f851ba44'
         this.allowNewDevice = options.allowNewDevice
         this.allowQueryNums = options.allowQueryNums
         
@@ -272,7 +272,7 @@ class Handler {
                 })
             }
 
-            if (deviceToken.length > 128) {
+            if (deviceToken.length > 160) {
                 return new Response(JSON.stringify({
                     'code': 400,
                     'message': 'device token is invalid',
@@ -285,7 +285,7 @@ class Handler {
                 })
             }
 
-            if (!(key && await db.deviceTokenByKey(key))){
+            if (!(key && await db.deviceTokenByKey(key) != undefined)) {
                 if (this.allowNewDevice) {
                     key = await util.newShortUUID()
                 } else {
@@ -390,21 +390,6 @@ class Handler {
                 })
             }
 
-            if (deviceToken.length > 128) {
-                await db.deleteDeviceByKey(parameters.device_key)
-
-                return new Response(JSON.stringify({
-                    'code': 400,
-                    'message': 'invalid device token, has been removed',
-                    'timestamp': util.getTimestamp(),
-                }), {
-                    status: 400,
-                    headers: {
-                        'content-type': 'application/json',
-                    }
-                })
-            }
-
             const title = parameters.title || undefined
             const subtitle = parameters.subtitle || undefined
             const body = parameters.body || undefined
@@ -428,13 +413,14 @@ class Handler {
             const url = parameters.url || undefined
             const image = parameters.image || undefined
             const copy = parameters.copy || undefined
-            const badge = parameters.badge || undefined
+            const badge = parameters.badge?.toString()
             const autoCopy = parameters.autocopy || undefined
             const action = parameters.action || undefined
             const iv = parameters.iv || undefined
             const id = parameters.id || undefined
             const _delete = parameters.delete || undefined
             const markdown = parameters.markdown || undefined
+            const ttl = parameters.ttl || undefined
             
             // https://developer.apple.com/documentation/usernotifications/generating-a-remote-notification
             const aps = {
@@ -490,6 +476,7 @@ class Handler {
                 'id': id,
                 'delete': _delete,
                 'markdown': markdown,
+                'ttl': ttl,
             }
 
             const headers = {
@@ -586,7 +573,7 @@ class APNs {
             }
 
             authToken = await generateAuthToken()
-            await db.saveAuthorizationToken(authToken, util.getTimestamp())
+            await db.saveAuthorizationToken(authToken)
 
             return authToken
         }
@@ -614,6 +601,9 @@ class APNs {
     }
 }
 
+let cachedAuthToken = {}
+let cachedDeviceToken = {}
+
 class Database {
     constructor(env) {
         // Make database private
@@ -626,29 +616,73 @@ class Database {
 
         this.deviceTokenByKey = async (key) => {
             const device_key = (key || '').replace(/[^a-zA-Z0-9]/g, '') || '_PLACE_HOLDER_'
+
+            if (device_key && cachedDeviceToken[device_key]) {
+                return cachedDeviceToken[device_key]
+            }
+
             const deviceToken = await kvStorage.get(device_key)
+
+            if (deviceToken) {
+                cachedDeviceToken[device_key] = deviceToken
+            }
+
             return deviceToken
         }
 
         this.saveDeviceTokenByKey = async (key, token) => {
             const device_token = (token || '').replace(/[^a-z0-9]/g, '') || ''
             const deviceToken = await kvStorage.put(key, device_token)
+
+            if (device_token === '') {
+                delete cachedDeviceToken[key]
+            } else {
+                cachedDeviceToken[key] = device_token
+            }
+
             return await deviceToken
         }
 
         this.deleteDeviceByKey = async (key) => {
             const device_key = (key || '').replace(/[^a-zA-Z0-9]/g, '') || '_PLACE_HOLDER_'
             const deviceToken = await kvStorage.delete(device_key)
+
+            delete cachedDeviceToken[device_key]
+
             return await deviceToken
         }
 
         this.saveAuthorizationToken = async (token) => {
-            const authToken = await kvStorage.put('_authToken_', token, { expirationTtl: 3000 })
+            const timestamp = util.getTimestamp()
+            const authToken = await kvStorage.put('_authToken_', JSON.stringify({
+                'token': token,
+                'time': timestamp,
+            }), { expirationTtl: 3000 })
+
+            cachedAuthToken = {
+                'token': token,
+                'timestamp': timestamp,
+            }
+
             return await authToken
         }
 
         this.authorizationToken = async () => {
-            return await kvStorage.get('_authToken_')
+            if (cachedAuthToken && (util.getTimestamp() - cachedAuthToken.timestamp < 3000)) {
+                return cachedAuthToken.token
+            }
+
+            const result = await kvStorage.get('_authToken_', 'json')
+
+            if (result && result.token && result.time) {
+                cachedAuthToken = {
+                    'token': result.token,
+                    'timestamp': result.time,
+                }
+                return result.token
+            }
+
+            return undefined
         }
     }
 }
