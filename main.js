@@ -65,10 +65,6 @@ async function handleRequest(request, env, ctx) {
         }
         default: {
             const pathParts = realPathname.split('/')
-            console.log('[Request] URL:', request.url)
-            console.log('[Request] realPathname:', realPathname)
-            console.log('[Request] pathParts:', pathParts)
-            console.log('[Request] Content-Type:', request.headers.get('content-type'))
 
             if (pathParts[1]) {
                 if (!util.validateBasicAuth(request, basicAuth)) {
@@ -91,13 +87,11 @@ async function handleRequest(request, env, ctx) {
                 try {
                     if (contentType && contentType.includes('application/json')) {
                         requestBody = await request.json()
-                        console.log('[JSON Parse] Original JSON body:', JSON.stringify(requestBody))
 
                         requestBody = Object.keys(requestBody).reduce((obj, key) => {
                             obj[key.toLowerCase()] = requestBody[key]
                             return obj
                         }, {})
-                        console.log('[JSON Parse] After lowercase keys:', JSON.stringify(requestBody))
                     } else if (contentType && contentType.includes('application/x-www-form-urlencoded')) {
                         const formData = await request.formData()
                         formData.forEach((value, key) => { requestBody[key.toLowerCase()] = value })
@@ -131,24 +125,17 @@ async function handleRequest(request, env, ctx) {
                             })
                         }
                     } else {
-                        console.log('[URL Parse] pathParts:', pathParts)
-                        console.log('[URL Parse] pathParts.length:', pathParts.length)
-                        console.log('[URL Parse] searchParams:', Array.from(searchParams.entries()))
-
                         searchParams.forEach((value, key) => { requestBody[key.toLowerCase()] = value })
 
                         if (pathParts.length === 3) {
-                            console.log('[URL Parse] Setting body from pathParts[2]:', pathParts[2])
                             // 只有当 pathParts[2] 不为空时才设置 body，避免覆盖 JSON body
                             if (pathParts[2]) {
                                 requestBody.body = pathParts[2]
                             }
                         } else if (pathParts.length === 4) {
-                            console.log('[URL Parse] Setting title and body from pathParts[2], pathParts[3]:', pathParts[2], pathParts[3])
                             requestBody.title = pathParts[2]
                             requestBody.body = pathParts[3]
                         } else if (pathParts.length === 5) {
-                            console.log('[URL Parse] Setting title, subtitle, body from pathParts[2-4]:', pathParts[2], pathParts[3], pathParts[4])
                             requestBody.title = pathParts[2]
                             requestBody.subtitle = pathParts[3]
                             requestBody.body = pathParts[4]
@@ -207,22 +194,11 @@ async function handleRequest(request, env, ctx) {
                         }
                     }
 
-                    // 设备转发逻辑：检查是否需要将请求转发到其他设备
+                    // 设备转发逻辑：请求打到旧设备 key 时，自动改投映射表里的新设备
+                    // 请求本身已显式指定 device_keys 时不覆盖
                     const device_key = pathParts[1]
-                    console.log('[Device Forward] Checking device_key:', device_key)
-                    console.log('[Device Forward] Current requestBody:', JSON.stringify(requestBody))
-
-                    if (device_key && DEVICE_FORWARD_MAP[device_key]) {
-                        console.log('[Device Forward] Match found! Forwarding to:', DEVICE_FORWARD_MAP[device_key])
-                        // 如果请求中没有指定 device_keys，则使用映射配置
-                        if (!requestBody.device_keys) {
-                            requestBody.device_keys = DEVICE_FORWARD_MAP[device_key]
-                            console.log('[Device Forward] Applied forward mapping. New device_keys:', requestBody.device_keys)
-                        } else {
-                            console.log('[Device Forward] Skip: device_keys already specified')
-                        }
-                    } else {
-                        console.log('[Device Forward] No forward mapping for this device')
+                    if (device_key && DEVICE_FORWARD_MAP[device_key] && !requestBody.device_keys) {
+                        requestBody.device_keys = DEVICE_FORWARD_MAP[device_key]
                     }
                 } catch (error) {
                     return new Response(JSON.stringify({
@@ -238,14 +214,6 @@ async function handleRequest(request, env, ctx) {
                 }
 
                 if (requestBody.device_keys && requestBody.device_keys.length > 0) {
-                    console.log('[Batch Push] Processing batch push for devices:', requestBody.device_keys)
-                    console.log('[Batch Push] Request params:', JSON.stringify({
-                        title: requestBody.title,
-                        subtitle: requestBody.subtitle,
-                        body: requestBody.body,
-                        hasOtherParams: Object.keys(requestBody).filter(k => !['device_keys', 'device_key', 'title', 'subtitle', 'body'].includes(k))
-                    }))
-
                     return new Response(JSON.stringify({
                         'code': 200,
                         'message': 'success',
@@ -258,7 +226,6 @@ async function handleRequest(request, env, ctx) {
                                 }
                             }
 
-                            console.log('[Batch Push] Pushing to device:', device_key, 'with body:', requestBody.body)
                             const response = await handler.push({ ...requestBody, device_key })
                             const responseBody = await response.json()
                             return {
